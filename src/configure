@@ -26,6 +26,7 @@ verbose=no
 with_dfu=default
 debug=no
 pinpad=no
+key_algorithm=RSA2048
 
 # check /dev/random
 if test ! -e /dev/random; then
@@ -61,6 +62,8 @@ for option; do
     with_dfu=yes ;;
   --without-dfu)
     with_dfu=no ;;
+  --key-algorithm=*)
+    key_algorithm=$optarg ;;
   *)
     echo "Unrecognized option \`$option'" >&2
     echo "Try \`$0 --help' for more information." >&2
@@ -89,6 +92,9 @@ Configuration:
   --enable-pinpad={cir,dial}
 			PIN input device support	[no]
   --with-dfu		build image for DFU 		[<target specific>]
+  --key-algorithm	specify key algorithm		[RSA2048]
+			supported key algorithms are:
+			   RSA2048
 EOF
   exit 0
 fi
@@ -170,6 +176,22 @@ else
   echo "PIN pad option enabled ($pinpad)"
 fi
 
+# key algorithm option
+case $key_algorithm in
+RSA2048) echo "Key algorithm: $key_algorithm"
+    KEY_ALGORITHM_DEFINE="#define KEY_ALGORITHM KEY_ALGO_RSA2048"
+    ;;
+RSA1024)
+    echo "Key algorithm: $key_algorithm"
+    echo "    RSA 1024 is *NOT* recommended.  Consider using RSA2048 instead."
+    KEY_ALGORITHM_DEFINE="#define KEY_ALGORITHM KEY_ALGO_RSA1024"
+    ;;
+*)
+    echo "Unsupported key algorithm \`$key_algorithm'" >&2
+    exit 1
+    ;;
+esac
+
 sed -e "s%@BOARD_DIR@%$BOARD_DIR%" \
     -e "s%@DEBUG_MAKE_OPTION@%$DEBUG_MAKE_OPTION%" \
     -e "s%@PINPAD_MAKE_OPTION@%$PINPAD_MAKE_OPTION%" \
@@ -181,5 +203,6 @@ sed -e "s/@DEBUG_DEFINE@/$DEBUG_DEFINE/" \
     -e "s/@PINPAD_DEFINE@/$PINPAD_DEFINE/" \
     -e "s/@PINPAD_MORE_DEFINE@/$PINPAD_MORE_DEFINE/" \
     -e "s/@DFU_DEFINE@/$DFU_DEFINE/" \
+    -e "s/@KEY_ALGORITHM_DEFINE@/$KEY_ALGORITHM_DEFINE/" \
 	< config.h.in > config.h
 exit 0
