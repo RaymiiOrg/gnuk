@@ -111,11 +111,21 @@ static const uint8_t extended_capabilities[] __attribute__ ((aligned (1))) = {
 
 /* Algorithm Attributes */
 static const uint8_t algorithm_attr[] __attribute__ ((aligned (1))) = {
+#if KEY_ALGORITHM == KEY_ALGO_RSA2048
   6,
   0x01, /* RSA */
   0x08, 0x00,	      /* Length modulus (in bit): 2048 */
-  0x00, 0x20,	      /* Length exponent (in bit): 32  */
+  0x00, 0x20,	      /* Length exponent (in bit):  32 */
   0x00		      /* 0: p&q , 3: CRT with N (not yet supported) */
+#elif  KEY_ALGORITHM == KEY_ALGO_RSA1024
+  6,
+  0x01, /* RSA */
+  0x04, 0x00,	      /* Length modulus (in bit): 1048 */
+  0x00, 0x20,	      /* Length exponent (in bit):  32 */
+  0x00		      /* 0: p&q , 3: CRT with N (not yet supported) */
+#else
+#error "Unsupported key algorithm"
+#endif
 };
 
 #define PW_LEN_MAX 127
@@ -684,10 +694,6 @@ gpg_do_write_prvkey (enum kind_of_key kk, const uint8_t *key_data, int key_len,
   const uint8_t *ks_rc;
   struct key_data_internal kdi;
 
-#if 0
-  assert (key_len == KEY_CONTENT_LEN);
-#endif
-
   DEBUG_INFO ("Key import\r\n");
   DEBUG_SHORT (key_len);
 
@@ -839,14 +845,27 @@ gpg_do_chks_prvkey (enum kind_of_key kk,
 }
 
 /*
- * 4d, xx, xx:    Extended Header List
- *   b6 00 (SIG) / b8 00 (DEC) / a4 00 (AUT)
- *   7f48, xx: cardholder private key template
- *       91 xx
- *       92 xx
- *       93 xx
- *   5f48, xx: cardholder private key
+ * 4d, 82, 01, 16 / 4d, 81, 93 :    Extended Header List
+ *   b6, 00 (SIG) / b8 00 (DEC) / a4 00 (AUT)
+ *   7f, 48, 08     / 7f, 48, 06 : cardholder private key template
+ *       91, 04
+ *       92, 81, 80 / 92, 40
+ *       93, 81, 80 / 93, 40
+ *   5f, 48, 82, 01, 04 / 5f, 48, 81, 84 : cardholder private key
+ *       00, 01, 00, 01: E  
+ *       xx, xx,..., xx: P
+ *       xx, xx,..., xx: Q
  */
+#if KEY_ALGORITHM == KEY_ALGO_RSA2048
+#define KEY_IMPORT_HEADER_SIZE 22
+#define KIND_OF_KEY 4
+#elif  KEY_ALGORITHM == KEY_ALGO_RSA1024
+#define KEY_IMPORT_HEADER_SIZE 18
+#define KIND_OF_KEY 3
+#else
+#error "Unsupported key algorithm"
+#endif
+
 static int
 proc_key_import (const uint8_t *data, int len)
 {
@@ -861,14 +880,14 @@ proc_key_import (const uint8_t *data, int len)
 
   DEBUG_BINARY (data, len);
 
-  if (data[4] == 0xb6)
+  if (data[KIND_OF_KEY] == 0xb6)
     kk = GPG_KEY_FOR_SIGNING;
-  else if (data[4] == 0xb8)
+  else if (data[KIND_OF_KEY] == 0xb8)
     kk = GPG_KEY_FOR_DECRYPTION;
   else				/* 0xa4 */
     kk = GPG_KEY_FOR_AUTHENTICATION;
 
-  if (len <= 22)
+  if (len <= KEY_IMPORT_HEADER_SIZE)
     {					    /* Deletion of the key */
       uint8_t nr = get_do_ptr_nr_for_kk (kk);
       const uint8_t *do_data = do_ptr[nr - NR_DO__FIRST__];
@@ -893,7 +912,8 @@ proc_key_import (const uint8_t *data, int len)
 
   /* It should starts with 00 01 00 01 (E) */
   /* Skip E, 4-byte */
-  r = gpg_do_write_prvkey (kk, &data[26], len - 26, keystring_admin);
+  r = gpg_do_write_prvkey (kk, &data[KEY_IMPORT_HEADER_SIZE + 4],
+			   len - KEY_IMPORT_HEADER_SIZE - 4, keystring_admin);
   if (r < 0)
     return 0;
   else
@@ -1389,16 +1409,31 @@ gpg_do_public_key (uint8_t kk_byte)
 
   /* TAG */
   *res_p++ = 0x7f; *res_p++ = 0x49;
+
+#if   KEY_ALGORITHM == KEY_ALGO_RSA2048
   /* LEN = 9+256 */
   *res_p++ = 0x82; *res_p++ = 0x01; *res_p++ = 0x09;
-
   {
     /*TAG*/          /*LEN = 256 */
     *res_p++ = 0x81; *res_p++ = 0x82; *res_p++ = 0x01; *res_p++ = 0x00;
     /* 256-byte binary (big endian) */
     memcpy (res_p, key_addr + KEY_CONTENT_LEN, KEY_CONTENT_LEN);
-    res_p += 256;
+    res_p += KEY_CONTENT_LEN;
   }
+#elif KEY_ALGORITHM == KEY_ALGO_RSA1024
+  /* LEN = 8+128 */
+  *res_p++ = 0x81; *res_p++ = 0x88;
+  {
+    /*TAG*/          /*LEN = 128 */
+    *res_p++ = 0x81; *res_p++ = 0x81; *res_p++ = 0x80;
+    /* 128-byte binary (big endian) */
+    memcpy (res_p, key_addr + KEY_CONTENT_LEN, KEY_CONTENT_LEN);
+    res_p += KEY_CONTENT_LEN;
+  }
+#else
+#error "Unsupported key algorithm"
+#endif
+
   {
     /*TAG*/          /*LEN= 3 */
     *res_p++ = 0x82; *res_p++ = 3;

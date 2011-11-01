@@ -129,7 +129,15 @@ extern uint8_t ch_certificate_start;
 extern uint8_t random_bits_start;
 
 #define KEY_MAGIC_LEN 8
+
+#if   KEY_ALGORITHM == KEY_ALGO_RSA2048
 #define KEY_CONTENT_LEN 256	/* p and q */
+#elif KEY_ALGORITHM == KEY_ALGO_RSA1024
+#define KEY_CONTENT_LEN 128	/* p and q */
+#else
+#error "Unsupported key algorithm"
+#endif
+
 #define GNUK_MAGIC "Gnuk KEY"
 
 /* encrypted data content */
